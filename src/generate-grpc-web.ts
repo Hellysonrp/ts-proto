@@ -1,8 +1,15 @@
-import { MethodDescriptorProto, FileDescriptorProto, ServiceDescriptorProto } from "ts-proto-descriptors";
-import { rawRequestType, requestType, responsePromiseOrObservable, responseType, observableType } from "./types";
-import { Code, code, imp, joinCode } from "ts-poet";
-import { Context } from "./context";
-import { assertInstanceOf, FormattedMethodDescriptor, maybePrefixPackage } from "./utils";
+import { MethodDescriptorProto, FileDescriptorProto, ServiceDescriptorProto } from 'ts-proto-descriptors';
+import {
+  rawRequestType,
+  requestType,
+  responseType,
+  observableType,
+  responseObservable,
+  responsePromise,
+} from './types';
+import { Code, code, imp, joinCode } from 'ts-poet';
+import { Context } from './context';
+import { assertInstanceOf, FormattedMethodDescriptor, maybePrefixPackage } from './utils';
 
 const grpc = imp("grpc@@improbable-eng/grpc-web");
 const share = imp("share@rxjs/operators");
@@ -45,6 +52,33 @@ export function generateGrpcClientImpl(
   return joinCode(chunks, { trim: false, on: "\n" });
 }
 
+function grpcWebResponseStreamPromise(ctx: Context, methodDesc: MethodDescriptorProto): Code {
+  return code`Promise<GrpcWebResponseStream<${responseType(ctx, methodDesc)}>>`;
+}
+
+function grpcWebBidirectionalStreamPromise(ctx: Context, methodDesc: MethodDescriptorProto): Code {
+  let typeName = rawRequestType(ctx, methodDesc);
+  const inputType = code`${ctx.utils.DeepPartial}<${typeName}>`;
+  return code`Promise<GrpcWebBidirectionalStream<${inputType}, ${responseType(ctx, methodDesc)}>>`;
+}
+
+export function grpcWebResponsePromiseOrObservable(ctx: Context, methodDesc: MethodDescriptorProto): Code {
+  const { options } = ctx;
+  if (options.grpcWebMixObservablePromise && (methodDesc.clientStreaming || methodDesc.serverStreaming)) {
+    return responseObservable(ctx, methodDesc);
+  } else if (options.returnObservable) {
+    return responseObservable(ctx, methodDesc);
+  } else if (methodDesc.clientStreaming && methodDesc.serverStreaming) {
+    return grpcWebBidirectionalStreamPromise(ctx, methodDesc);
+  } else if (methodDesc.clientStreaming) {
+    return grpcWebBidirectionalStreamPromise(ctx, methodDesc);
+  } else if (methodDesc.serverStreaming) {
+    return grpcWebResponseStreamPromise(ctx, methodDesc);
+  } else {
+    return responsePromise(ctx, methodDesc);
+  }
+}
+
 /** Creates the RPC methods that client code actually calls. */
 function generateRpcMethod(ctx: Context, serviceDesc: ServiceDescriptorProto, methodDesc: MethodDescriptorProto) {
   assertInstanceOf(methodDesc, FormattedMethodDescriptor);
@@ -52,18 +86,43 @@ function generateRpcMethod(ctx: Context, serviceDesc: ServiceDescriptorProto, me
   const { useAbortSignal } = options;
   const requestMessage = requestType(ctx, methodDesc, false);
   const inputType = requestType(ctx, methodDesc, true);
-  const returns = responsePromiseOrObservable(ctx, methodDesc);
-
-  if (methodDesc.clientStreaming) {
-    return code`
+  const returns = grpcWebResponsePromiseOrObservable(ctx, methodDesc);
+  if (options.returnObservable || options.grpcWebMixObservablePromise) {
+    if (methodDesc.clientStreaming) {
+      return code`
     ${methodDesc.formattedName}(
       request: ${inputType},
-      metadata?: grpc.Metadata,
-      ${useAbortSignal ? "abortSignal?: AbortSignal," : ""}
-    ): ${returns} {
-      throw new Error('ts-proto does not yet support client streaming!');
+      options?: {
+        metadata?: ${grpc}.Metadata,
+        rpcOptions?: ${grpc}.RpcOptions,
+    }): ${returns} {
+    return this.rpc.stream(
+      ${methodDescName(serviceDesc, methodDesc)},
+      request,
+      ${requestMessage}.fromPartial,
+      options?.metadata,
+      options?.rpcOptions
+    );
     }
   `;
+    }
+  } else {
+    if (methodDesc.clientStreaming) {
+      return code`
+    ${methodDesc.formattedName}(
+      options?: {
+        metadata?: ${grpc}.Metadata,
+        rpcOptions?: ${grpc}.RpcOptions,
+    }): ${returns} {
+    return this.rpc.stream(
+      ${methodDescName(serviceDesc, methodDesc)},
+      ${requestMessage}.fromPartial,
+      options?.metadata,
+      options?.rpcOptions
+    );
+    }
+  `;
+    }
   }
 
   const method = methodDesc.serverStreaming ? "invoke" : "unary";
@@ -104,7 +163,7 @@ export function generateGrpcMethodDesc(
   serviceDesc: ServiceDescriptorProto,
   methodDesc: MethodDescriptorProto,
 ): Code {
-  const inputType = requestType(ctx, methodDesc);
+  const inputType = rawRequestType(ctx, methodDesc);
   const outputType = responseType(ctx, methodDesc);
 
   // grpc-web expects this to be a class, but the ts-proto messages are just interfaces.
@@ -136,13 +195,15 @@ export function generateGrpcMethodDesc(
         toObject() { return value; },
       };
     }
-  }`;
+}`;
+
+  const methodDef = methodDesc.clientStreaming ? 'MethodDefinitionish' : 'UnaryMethodDefinitionish';
 
   return code`
-    export const ${methodDescName(serviceDesc, methodDesc)}: UnaryMethodDefinitionish = {
+    export const ${methodDescName(serviceDesc, methodDesc)}: ${methodDef} = {
       methodName: "${methodDesc.name}",
       service: ${serviceDesc.name}Desc,
-      requestStream: false,
+      requestStream: ${methodDesc.clientStreaming ? "true" : "false"},
       responseStream: ${methodDesc.serverStreaming ? "true" : "false"},
       requestType: ${requestFn} as any,
       responseType: ${responseFn} as any,
@@ -155,27 +216,66 @@ function methodDescName(serviceDesc: ServiceDescriptorProto, methodDesc: MethodD
 }
 
 /** Adds misc top-level definitions for grpc-web functionality. */
-export function addGrpcWebMisc(ctx: Context, hasStreamingMethods: boolean): Code {
+export function addGrpcWebMisc(ctx: Context, hasClientStreaming: boolean, hasServerStreaming: boolean): Code {
   const { options } = ctx;
   const chunks: Code[] = [];
   chunks.push(code`
     interface UnaryMethodDefinitionishR extends ${grpc}.UnaryMethodDefinition<any, any> { requestStream: any; responseStream: any; }
   `);
   chunks.push(code`type UnaryMethodDefinitionish = UnaryMethodDefinitionishR;`);
-  chunks.push(generateGrpcWebRpcType(ctx, options.returnObservable, hasStreamingMethods));
-  chunks.push(generateGrpcWebImpl(ctx, options.returnObservable, hasStreamingMethods));
-  return joinCode(chunks, { on: "\n\n" });
+
+  if (hasClientStreaming) {
+    chunks.push(code`
+    interface MethodDefinitionishR extends ${grpc}.MethodDefinition<any, any> { requestStream: any; responseStream: any; }
+`);
+    chunks.push(code`type MethodDefinitionish = MethodDefinitionishR;`);
+  }
+
+  if (!options.returnObservable && !options.grpcWebMixObservablePromise) {
+    if (hasServerStreaming || hasClientStreaming) {
+      chunks.push(code`
+export type GrpcWebStatus = { details: string; code: number; metadata: grpc.Metadata };
+type GrpcWebOnType = 'data' | 'end' | 'status';
+type GrpcWebOnDataHandler<T> = (message: T) => void;
+type GrpcWebOnEndHandler = (status?: GrpcWebStatus) => void;
+type GrpcWebOnStatusHandler = (status: GrpcWebStatus) => void;
+type GrpcWebListeners<T> = {
+  data: GrpcWebOnDataHandler<T>[];
+  end: GrpcWebOnEndHandler[];
+  status: GrpcWebOnStatusHandler[];
+};
+interface GrpcWebResponseStream<T> {
+  cancel(): void;
+  on(type: 'data', handler: GrpcWebOnDataHandler<T>): GrpcWebResponseStream<T>;
+  on(type: 'end', handler: GrpcWebOnEndHandler): GrpcWebResponseStream<T>;
+  on(type: 'status', handler: GrpcWebOnStatusHandler): GrpcWebResponseStream<T>;
+};
+interface GrpcWebBidirectionalStream<ReqT, ResT> {
+  write(message: ReqT): GrpcWebBidirectionalStream<ReqT, ResT>;
+  end(): void;
+  cancel(): void;
+  on(type: 'data', handler: GrpcWebOnDataHandler<ResT>): GrpcWebBidirectionalStream<ReqT, ResT>;
+  on(type: 'end', handler: GrpcWebOnEndHandler): GrpcWebBidirectionalStream<ReqT, ResT>;
+  on(type: 'status', handler: GrpcWebOnStatusHandler): GrpcWebBidirectionalStream<ReqT, ResT>;
+};
+`);
+    }
+  }
+
+  chunks.push(generateGrpcWebRpcType(ctx, hasClientStreaming, hasServerStreaming));
+  chunks.push(generateGrpcWebImpl(ctx, hasClientStreaming, hasServerStreaming));
+  return joinCode(chunks, { on: '\n\n' });
 }
 
 /** Makes an `Rpc` interface to decouple from the low-level grpc-web `grpc.invoke and grpc.unary`/etc. methods. */
-function generateGrpcWebRpcType(ctx: Context, returnObservable: boolean, hasStreamingMethods: boolean): Code {
-  const chunks: Code[] = [];
+function generateGrpcWebRpcType(ctx: Context, hasClientStreaming: boolean, hasServerStreaming: boolean): Code {
   const { options } = ctx;
   const { useAbortSignal } = options;
 
+  const chunks: Code[] = [];
   chunks.push(code`interface Rpc {`);
 
-  const wrapper = returnObservable ? observableType(ctx) : "Promise";
+  const wrapper = options.returnObservable ? observableType(ctx) : 'Promise';
   chunks.push(code`
     unary<T extends UnaryMethodDefinitionish>(
       methodDesc: T,
@@ -185,15 +285,40 @@ function generateGrpcWebRpcType(ctx: Context, returnObservable: boolean, hasStre
     ): ${wrapper}<any>;
   `);
 
-  if (hasStreamingMethods) {
-    chunks.push(code`
+  if (options.returnObservable || options.grpcWebMixObservablePromise) {
+    if (hasServerStreaming || hasClientStreaming) {
+      chunks.push(code`
       invoke<T extends UnaryMethodDefinitionish>(
         methodDesc: T,
         request: any,
-        metadata: grpc.Metadata | undefined,
+        metadata: ${grpc}.Metadata | undefined,
         ${useAbortSignal ? "abortSignal?: AbortSignal," : ""}
-      ): ${observableType(ctx)}<any>;
-    `);
+      ): ${observableType(ctx)}<any>;`);
+      chunks.push(code`
+      stream<T extends MethodDefinitionish, Req>(
+        methodDesc: T,
+        request: Observable<DeepPartial<Req>>,
+        fromPartial: (request: DeepPartial<Req>) => any,
+        metadata: grpc.Metadata | undefined,
+        rpcOptions: grpc.RpcOptions | undefined
+      ): Observable<any>;`);
+    }
+  } else {
+    if (hasServerStreaming || hasClientStreaming) {
+      chunks.push(code`
+      invoke<T extends UnaryMethodDefinitionish>(
+        methodDesc: T,
+        request: any,
+        metadata: ${grpc}.Metadata | undefined
+      ): Promise<GrpcWebResponseStream<any>>;`);
+      chunks.push(code`
+      stream<T extends MethodDefinitionish, Req>(
+        methodDesc: T,
+        fromPartial: (request: any) => Req,
+      metadata: ${grpc}.Metadata | undefined,
+      rpcOptions: ${grpc}.RpcOptions | undefined
+    ): Promise<GrpcWebBidirectionalStream<Req, any>>;`);
+    }
   }
 
   chunks.push(code`}`);
@@ -201,13 +326,16 @@ function generateGrpcWebRpcType(ctx: Context, returnObservable: boolean, hasStre
 }
 
 /** Implements the `Rpc` interface by making calls using the `grpc.unary` method. */
-function generateGrpcWebImpl(ctx: Context, returnObservable: boolean, hasStreamingMethods: boolean): Code {
+function generateGrpcWebImpl(ctx: Context, hasClientStreaming: boolean, hasServerStreaming: boolean): Code {
+  const ctxOptions = ctx.options;
+  const streamTransport =
+    hasClientStreaming || hasClientStreaming ? code`streamingTransport?: ${grpc}.TransportFactory,` : '';
   const options = code`
     {
-      transport?: grpc.TransportFactory,
-      ${hasStreamingMethods ? "streamingTransport?: grpc.TransportFactory," : ``}
+      transport?: ${grpc}.TransportFactory,
+      ${streamTransport}
       debug?: boolean,
-      metadata?: grpc.Metadata,
+      metadata?: ${grpc}.Metadata,
       upStreamRetryCodes?: number[],
     }
   `;
@@ -217,23 +345,27 @@ function generateGrpcWebImpl(ctx: Context, returnObservable: boolean, hasStreami
     export class GrpcWebImpl {
       private host: string;
       private options: ${options};
-      
+
       constructor(host: string, options: ${options}) {
         this.host = host;
         this.options = options;
       }
   `);
 
-  if (returnObservable) {
+  if (ctxOptions.returnObservable) {
     chunks.push(createObservableUnaryMethod(ctx));
   } else {
     chunks.push(createPromiseUnaryMethod(ctx));
   }
-
-  if (hasStreamingMethods) {
-    chunks.push(createInvokeMethod(ctx));
+  if (hasClientStreaming || hasServerStreaming) {
+    if (ctxOptions.returnObservable || ctxOptions.grpcWebMixObservablePromise) {
+      chunks.push(createInvokeMethod(ctx));
+      chunks.push(createStreamMethod(ctx));
+    } else {
+      chunks.push(createPromiseInvokeMethod());
+      chunks.push(createPromiseStreamMethod());
+    }
   }
-
   chunks.push(code`}`);
   return joinCode(chunks, { trim: false });
 }
@@ -328,7 +460,7 @@ function createObservableUnaryMethod(ctx: Context): Code {
       ${maybeAbortSignal}
 
       }).pipe(${take}(1));
-    } 
+    }
   `;
 }
 
@@ -400,4 +532,180 @@ function createInvokeMethod(ctx: Context) {
       }).pipe(${share}());
     }
   `;
+}
+
+function createPromiseInvokeMethod() {
+  return code`
+  invoke<T extends UnaryMethodDefinitionish>(
+    methodDesc: T,
+    _request: any,
+    metadata: ${grpc}.Metadata | undefined
+  ): Promise<GrpcWebResponseStream<any>> {
+    const request = { ..._request, ...methodDesc.requestType };
+    const maybeCombinedMetadata =
+      metadata && this.options.metadata
+        ? new ${BrowserHeaders}({ ...this.options?.metadata.headersMap, ...metadata?.headersMap })
+        : metadata || this.options.metadata;
+
+   let listeners: GrpcWebListeners<any> = {
+      data: [],
+      end: [],
+      status: [],
+    };
+
+    const client = ${grpc}.invoke(methodDesc, {
+      host: this.host,
+      request,
+      transport: this.options.streamingTransport || this.options.transport,
+      metadata: maybeCombinedMetadata,
+      debug: this.options.debug,
+      onMessage: function (message) {
+        listeners.data.forEach(function (handler) {
+          handler(message);
+        });
+      },
+      onEnd: function (code: ${grpc}.Code, message: string, trailers: ${grpc}.Metadata) {
+        listeners.status.forEach(function (handler) {
+          handler({ code, details: message, metadata: trailers });
+        });
+        listeners.end.forEach(function (handler) {
+          handler({ code, details: message, metadata: trailers });
+        });
+        listeners = { data: [], end: [], status: [] };
+      },
+    });
+
+    const invoke: GrpcWebResponseStream<any> = {
+      on: function (
+        listenType: GrpcWebOnType,
+        hanlder: GrpcWebOnDataHandler<any> | GrpcWebOnEndHandler | GrpcWebOnStatusHandler
+      ) {
+        listeners[listenType].push(hanlder);
+        return this;
+      },
+      cancel: function () {
+        listeners = { data: [], end: [], status: [] };
+        client.close();
+      },
+    };
+    return Promise.resolve(invoke);
+  }
+`;
+}
+
+function createStreamMethod(ctx: Context) {
+  return code`
+  stream<T extends MethodDefinitionish, Req>(
+    methodDesc: T,
+    _request: ${observableType(ctx)}<DeepPartial<Req>>,
+    fromPartial: (request: DeepPartial<Req>) => any,
+    metadata: ${grpc}.Metadata | undefined,
+    rpcOptions: ${grpc}.RpcOptions | undefined
+  ): ${observableType(ctx)}<any> {
+    const defaultOptions = {
+      host: this.host,
+      debug: rpcOptions?.debug || this.options.debug,
+      transport: rpcOptions?.transport || this.options.streamingTransport || this.options.transport,
+    }
+
+    let started = false;
+    const client = ${grpc}.client(methodDesc, defaultOptions);
+
+    const subscription = _request.subscribe((_req: DeepPartial<Req>) => {
+      const req = fromPartial(_req);
+      const request = { ...req, ...methodDesc.requestType };
+      if (!started) {
+        client.start(metadata);
+        started = true;
+      }
+      client.send(request);
+    })
+
+    subscription.add(() => {
+      client.finishSend();
+    })
+
+    return new Observable((observer) => {
+      client.onEnd((code: ${grpc}.Code, message: string, trailers: ${grpc}.Metadata) => {
+        subscription.unsubscribe();
+        if (code === 0) {
+          observer.complete();
+        } else {
+          const err = new Error(message) as any;
+          err.code = code;
+          err.metadata = trailers;
+          observer.error(err);
+        }
+      })
+      client.onMessage((res: any) => {
+        observer.next(res);
+      })
+      observer.add(() => client.close())
+    }).pipe(share());
+  }
+`;
+}
+
+function createPromiseStreamMethod() {
+  return code`
+  stream<T extends MethodDefinitionish, Req>(
+    methodDesc: T,
+    fromPartial: (request: DeepPartial<Req>) => any,
+    metadata: ${grpc}.Metadata | undefined,
+    rpcOptions: ${grpc}.RpcOptions | undefined
+  ): Promise<GrpcWebBidirectionalStream<DeepPartial<Req>, any>> {
+    const defaultOptions = {
+      host: this.host,
+      debug: rpcOptions?.debug || this.options.debug,
+      transport: rpcOptions?.transport || this.options.streamingTransport || this.options.transport,
+    };
+
+    let listeners: GrpcWebListeners<any> = {
+      data: [],
+      end: [],
+      status: [],
+    };
+
+    const client = ${grpc}.client(methodDesc, defaultOptions);
+    client.onMessage(function (message) {
+      listeners.data.forEach(function (handler) {
+        handler(message);
+      });
+    });
+    client.onEnd(function (code: ${grpc}.Code, message: string, trailers: ${grpc}.Metadata) {
+      listeners.status.forEach(function (handler) {
+        handler({ code, details: message, metadata: trailers });
+      });
+      listeners.end.forEach(function (handler) {
+        handler({ code, details: message, metadata: trailers });
+      });
+      listeners = { data: [], end: [], status: [] };
+    });
+
+    client.start(metadata);
+
+    const bidi: GrpcWebBidirectionalStream<DeepPartial<Req>, any> = {
+      on: function (
+        listenType: GrpcWebOnType,
+        hanlder: GrpcWebOnDataHandler<any> | GrpcWebOnEndHandler | GrpcWebOnStatusHandler
+      ) {
+        listeners[listenType].push(hanlder);
+        return this;
+      },
+      write: function (message: DeepPartial<Req>) {
+        const request = fromPartial(message);
+        client.send({ ...request, ...methodDesc.requestType });
+        return this;
+      },
+      end: function () {
+        client.finishSend();
+      },
+      cancel: function () {
+        listeners = { data: [], end: [], status: [] };
+        client.close();
+      },
+    };
+    return Promise.resolve(bidi);
+  }
+`;
 }

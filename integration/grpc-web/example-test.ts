@@ -9,6 +9,7 @@ describe('grpc-web', () => {
     const rpc = {
       unary: jest.fn(),
       invoke: jest.fn(),
+      stream: jest.fn(),
     };
     const client = new DashStateClientImpl(rpc);
     client.UserSettings({});
@@ -17,6 +18,7 @@ describe('grpc-web', () => {
     const rpc = {
       unary: jest.fn(),
       invoke: jest.fn(),
+      stream: jest.fn(),
     };
     const client = new DashStateClientImpl(rpc);
     const userSettings = client.UserSettings;
@@ -26,6 +28,7 @@ describe('grpc-web', () => {
     const rpc = {
       unary: jest.fn(),
       invoke: jest.fn(),
+      stream: jest.fn(),
     };
     const client = new DashStateClientImpl(rpc);
     const call = () => client.ChangeUserSettingsStream(EMPTY);

@@ -314,7 +314,7 @@ export function generateFile(ctx: Context, fileDesc: FileDescriptorProto): [stri
   }
 
   let hasServerStreamingMethods = false;
-  let hasStreamingMethods = false;
+  let hasClientStreamingMethods = false;
 
   visitServices(fileDesc, sourceInfo, (serviceDesc, sInfo) => {
     if (options.nestJs) {
@@ -330,41 +330,38 @@ export function generateFile(ctx: Context, fileDesc: FileDescriptorProto): [stri
         serviceConstName = `${camelToSnake(serviceDesc.name)}_SERVICE_NAME`;
       }
       chunks.push(code`export const ${serviceConstName} = "${serviceDesc.name}";`);
-    }
+    } else {
+      const uniqueServices = [...new Set(options.outputServices)].sort();
+      uniqueServices.forEach((outputService) => {
+        if (outputService === ServiceOption.GRPC) {
+          chunks.push(generateGrpcJsService(ctx, fileDesc, sInfo, serviceDesc));
+        } else if (outputService === ServiceOption.NICE_GRPC) {
+          chunks.push(generateNiceGrpcService(ctx, fileDesc, sInfo, serviceDesc));
+        } else if (outputService === ServiceOption.GENERIC) {
+          chunks.push(generateGenericServiceDefinition(ctx, fileDesc, sInfo, serviceDesc));
+        } else if (outputService === ServiceOption.DEFAULT) {
+          // This service could be Twirp or grpc-web or JSON (maybe). So far all of their
+          // interfaces are fairly similar so we share the same service interface.
+          chunks.push(generateService(ctx, fileDesc, sInfo, serviceDesc));
 
-    const uniqueServices = [...new Set(options.outputServices)].sort();
-    uniqueServices.forEach((outputService) => {
-      if (outputService === ServiceOption.GRPC) {
-        chunks.push(generateGrpcJsService(ctx, fileDesc, sInfo, serviceDesc));
-      } else if (outputService === ServiceOption.NICE_GRPC) {
-        chunks.push(generateNiceGrpcService(ctx, fileDesc, sInfo, serviceDesc));
-      } else if (outputService === ServiceOption.GENERIC) {
-        chunks.push(generateGenericServiceDefinition(ctx, fileDesc, sInfo, serviceDesc));
-      } else if (outputService === ServiceOption.DEFAULT) {
-        // This service could be Twirp or grpc-web or JSON (maybe). So far all of their
-        // interfaces are fairly similar so we share the same service interface.
-        chunks.push(generateService(ctx, fileDesc, sInfo, serviceDesc));
-
-        if (options.outputClientImpl === true) {
-          chunks.push(generateServiceClientImpl(ctx, fileDesc, serviceDesc));
-        } else if (options.outputClientImpl === "grpc-web") {
-          chunks.push(generateGrpcClientImpl(ctx, fileDesc, serviceDesc));
-          chunks.push(generateGrpcServiceDesc(fileDesc, serviceDesc));
-          serviceDesc.method.forEach((method) => {
-            if (!method.clientStreaming) {
+          if (options.outputClientImpl === true) {
+            chunks.push(generateServiceClientImpl(ctx, fileDesc, serviceDesc));
+          } else if (options.outputClientImpl === 'grpc-web') {
+            chunks.push(generateGrpcClientImpl(ctx, fileDesc, serviceDesc));
+            chunks.push(generateGrpcServiceDesc(fileDesc, serviceDesc));
+            serviceDesc.method.forEach((method) => {
               chunks.push(generateGrpcMethodDesc(ctx, serviceDesc, method));
-            }
-            if (method.serverStreaming) {
-              hasServerStreamingMethods = true;
-            }
-          });
+            });
+          }
         }
+      });
+    }
+    serviceDesc.method.forEach((methodDesc) => {
+      if (methodDesc.serverStreaming) {
+        hasServerStreamingMethods = true;
       }
-    });
-
-    serviceDesc.method.forEach((methodDesc, _index) => {
-      if (methodDesc.serverStreaming || methodDesc.clientStreaming) {
-        hasStreamingMethods = true;
+      if (methodDesc.clientStreaming) {
+        hasClientStreamingMethods = true;
       }
     });
   });
@@ -375,9 +372,9 @@ export function generateFile(ctx: Context, fileDesc: FileDescriptorProto): [stri
     fileDesc.service.length > 0
   ) {
     if (options.outputClientImpl === true) {
-      chunks.push(generateRpcType(ctx, hasStreamingMethods));
-    } else if (options.outputClientImpl === "grpc-web") {
-      chunks.push(addGrpcWebMisc(ctx, hasServerStreamingMethods));
+      chunks.push(generateRpcType(ctx, hasServerStreamingMethods || hasClientStreamingMethods));
+    } else if (options.outputClientImpl === 'grpc-web') {
+      chunks.push(addGrpcWebMisc(ctx, hasClientStreamingMethods, hasServerStreamingMethods));
     }
   }
 

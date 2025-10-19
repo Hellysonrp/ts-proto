@@ -69,6 +69,7 @@ export type Options = {
   metadataType: string | undefined;
   addNestjsRestParameter: boolean;
   returnObservable: boolean;
+  grpcWebMixObservablePromise: boolean;
   lowerCaseServiceMethods: boolean;
   nestJs: boolean;
   env: EnvOption;
@@ -137,6 +138,7 @@ export function defaultOptions(): Options {
     outputClientImpl: true,
     outputServices: [],
     returnObservable: false,
+    grpcWebMixObservablePromise: true,
     addGrpcMetadata: false,
     metadataType: undefined,
     addNestjsRestParameter: false,

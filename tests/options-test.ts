@@ -23,6 +23,7 @@ describe("options", () => {
         "fileSuffix": "",
         "forceLong": "number",
         "globalThisPolyfill": false,
+        "grpcWebMixObservablePromise": true,
         "importSuffix": "",
         "initializeFieldsAsUndefined": false,
         "lowerCaseServiceMethods": true,
