@@ -84,7 +84,7 @@ function generateRpcMethod(ctx: Context, serviceDesc: ServiceDescriptorProto, me
   assertInstanceOf(methodDesc, FormattedMethodDescriptor);
   const { options } = ctx;
   const { useAbortSignal } = options;
-  const requestMessage = requestType(ctx, methodDesc, false);
+  const requestMessage = rawRequestType(ctx, methodDesc, { keepValueType: true });
   const inputType = requestType(ctx, methodDesc, true);
   const returns = grpcWebResponsePromiseOrObservable(ctx, methodDesc);
   if (options.returnObservable || options.grpcWebMixObservablePromise) {
@@ -163,7 +163,7 @@ export function generateGrpcMethodDesc(
   serviceDesc: ServiceDescriptorProto,
   methodDesc: MethodDescriptorProto,
 ): Code {
-  const inputType = rawRequestType(ctx, methodDesc);
+  const inputType = rawRequestType(ctx, methodDesc, { keepValueType: true });
   const outputType = responseType(ctx, methodDesc);
 
   // grpc-web expects this to be a class, but the ts-proto messages are just interfaces.

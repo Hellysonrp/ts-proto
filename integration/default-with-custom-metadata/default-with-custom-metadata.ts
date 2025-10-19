@@ -2,6 +2,7 @@
 // source: default-with-custom-metadata.proto
 
 /* eslint-disable */
+import { Metadata } from "@grpc/grpc-js";
 import * as _m0 from "protobufjs/minimal";
 import { Foo } from "./custom-metadata";
 
@@ -130,7 +131,7 @@ export const GetBasicResponse = {
 };
 
 export interface BasicService {
-  GetBasic(request: GetBasicRequest, metadata?: Foo): Promise<GetBasicResponse>;
+  GetBasic(request: GetBasicRequest, metadata?: Metadata): Promise<GetBasicResponse>;
 }
 
 export const BasicServiceServiceName = "basic.BasicService";

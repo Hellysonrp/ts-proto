@@ -2,8 +2,7 @@
 // source: hero.proto
 
 /* eslint-disable */
-import { handleBidiStreamingCall, Metadata } from "@grpc/grpc-js";
-import type { handleUnaryCall, UntypedServiceImplementation } from "@grpc/grpc-js";
+import { Metadata } from "@grpc/grpc-js";
 import { GrpcMethod, GrpcStreamMethod } from "@nestjs/microservices";
 import * as _m0 from "protobufjs/minimal";
 import { Observable } from "rxjs";
@@ -226,40 +225,3 @@ export function HeroServiceControllerMethods() {
 }
 
 export const HERO_SERVICE_NAME = "HeroService";
-
-export type HeroServiceService = typeof HeroServiceService;
-export const HeroServiceService = {
-  findOneHero: {
-    path: "/hero.HeroService/FindOneHero",
-    requestStream: false,
-    responseStream: false,
-    requestSerialize: (value: HeroById) => Buffer.from(HeroById.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => HeroById.decode(value),
-    responseSerialize: (value: Hero) => Buffer.from(Hero.encode(value).finish()),
-    responseDeserialize: (value: Buffer) => Hero.decode(value),
-  },
-  findOneVillain: {
-    path: "/hero.HeroService/FindOneVillain",
-    requestStream: false,
-    responseStream: false,
-    requestSerialize: (value: VillainById) => Buffer.from(VillainById.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => VillainById.decode(value),
-    responseSerialize: (value: Villain) => Buffer.from(Villain.encode(value).finish()),
-    responseDeserialize: (value: Buffer) => Villain.decode(value),
-  },
-  findManyVillain: {
-    path: "/hero.HeroService/FindManyVillain",
-    requestStream: true,
-    responseStream: true,
-    requestSerialize: (value: VillainById) => Buffer.from(VillainById.encode(value).finish()),
-    requestDeserialize: (value: Buffer) => VillainById.decode(value),
-    responseSerialize: (value: Villain) => Buffer.from(Villain.encode(value).finish()),
-    responseDeserialize: (value: Buffer) => Villain.decode(value),
-  },
-} as const;
-
-export interface HeroServiceServer extends UntypedServiceImplementation {
-  findOneHero: handleUnaryCall<HeroById, Hero>;
-  findOneVillain: handleUnaryCall<VillainById, Villain>;
-  findManyVillain: handleBidiStreamingCall<VillainById, Villain>;
-}

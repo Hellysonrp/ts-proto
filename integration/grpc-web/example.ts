@@ -743,10 +743,7 @@ export interface DashState {
   /** not supported in grpc-web, but should still compile */
   ChangeUserSettingsStream(
     request: Observable<DeepPartial<DashUserSettingsState>>,
-    options?: {
-      metadata?: grpc.Metadata;
-      rpcOptions?: grpc.RpcOptions;
-    }
+    options?: { metadata?: grpc.Metadata; rpcOptions?: grpc.RpcOptions },
   ): Observable<DashUserSettingsState>;
 }
 
@@ -770,17 +767,14 @@ export class DashStateClientImpl implements DashState {
 
   ChangeUserSettingsStream(
     request: Observable<DeepPartial<DashUserSettingsState>>,
-    options?: {
-      metadata?: grpc.Metadata;
-      rpcOptions?: grpc.RpcOptions;
-    }
+    options?: { metadata?: grpc.Metadata; rpcOptions?: grpc.RpcOptions },
   ): Observable<DashUserSettingsState> {
     return this.rpc.stream(
       DashStateChangeUserSettingsStreamDesc,
       request,
       DashUserSettingsState.fromPartial,
       options?.metadata,
-      options?.rpcOptions
+      options?.rpcOptions,
     );
   }
 }
@@ -834,7 +828,7 @@ export const DashStateActiveUserSettingsStreamDesc: UnaryMethodDefinitionish = {
 };
 
 export const DashStateChangeUserSettingsStreamDesc: MethodDefinitionish = {
-  methodName: 'ChangeUserSettingsStream',
+  methodName: "ChangeUserSettingsStream",
   service: DashStateDesc,
   requestStream: true,
   responseStream: true,
@@ -845,10 +839,11 @@ export const DashStateChangeUserSettingsStreamDesc: MethodDefinitionish = {
   } as any,
   responseType: {
     deserializeBinary(data: Uint8Array) {
+      const value = DashUserSettingsState.decode(data);
       return {
-        ...DashUserSettingsState.decode(data),
+        ...value,
         toObject() {
-          return this;
+          return value;
         },
       };
     },
@@ -1019,7 +1014,7 @@ interface Rpc {
     request: Observable<DeepPartial<Req>>,
     fromPartial: (request: DeepPartial<Req>) => any,
     metadata: grpc.Metadata | undefined,
-    rpcOptions: grpc.RpcOptions | undefined
+    rpcOptions: grpc.RpcOptions | undefined,
   ): Observable<any>;
 }
 
@@ -1120,7 +1115,7 @@ export class GrpcWebImpl {
     _request: Observable<DeepPartial<Req>>,
     fromPartial: (request: DeepPartial<Req>) => any,
     metadata: grpc.Metadata | undefined,
-    rpcOptions: grpc.RpcOptions | undefined
+    rpcOptions: grpc.RpcOptions | undefined,
   ): Observable<any> {
     const defaultOptions = {
       host: this.host,
