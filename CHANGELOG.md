@@ -1,3 +1,21 @@
+# [1.182.0](https://github.com/Hellysonrp/ts-proto/compare/v1.181.2...v1.182.0) (2025-10-20)
+
+
+### Bug Fixes
+
+* don't generate client stream method when no client stream ([99ad96f](https://github.com/Hellysonrp/ts-proto/commit/99ad96f54f7047875dfada55f4f05d812663b91a))
+* grpc-web server streaming use UnaryMethodDefinitionish ([c6aa36d](https://github.com/Hellysonrp/ts-proto/commit/c6aa36de25a5b332bb2ed53425f2527dd04f1bf5))
+* grpc-web stream method definitionish ([a313276](https://github.com/Hellysonrp/ts-proto/commit/a3132760d443ca72ae557f295267f134b986a835))
+* update typing and remove throwing test ([686f779](https://github.com/Hellysonrp/ts-proto/commit/686f779b0193be8b228d55521bdaadef7635e9f7))
+
+
+### Features
+
+* add grpcWebMixObservablePromise option ([cfdd5f8](https://github.com/Hellysonrp/ts-proto/commit/cfdd5f8a83306f8e44140db943184b795539ff88))
+* grpc-web observable stream support DeepPartial ([066a79a](https://github.com/Hellysonrp/ts-proto/commit/066a79a9305ec81071d28452c123170e611579e0))
+* grpc-web stream error with metadata ([d46ca93](https://github.com/Hellysonrp/ts-proto/commit/d46ca9348d7fdfe4e16c582390a4fc9f4e0ef3ae))
+* grpc-web support stream (Promise/Observable) ([3b297f9](https://github.com/Hellysonrp/ts-proto/commit/3b297f950999345d52e2c720aa944a5a1633d8c0))
+
 ## [1.181.2](https://github.com/stephenh/ts-proto/compare/v1.181.1...v1.181.2) (2024-08-15)
 
 
