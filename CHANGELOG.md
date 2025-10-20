@@ -1,3 +1,10 @@
+## [1.182.1](https://github.com/Hellysonrp/ts-proto/compare/v1.182.0...v1.182.1) (2025-10-20)
+
+
+### Bug Fixes
+
+* trigger release ([4ff88ea](https://github.com/Hellysonrp/ts-proto/commit/4ff88ea62722e65aea07879c930049539da78856))
+
 # [1.182.0](https://github.com/Hellysonrp/ts-proto/compare/v1.181.2...v1.182.0) (2025-10-20)
 
 
